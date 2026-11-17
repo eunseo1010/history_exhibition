@@ -1,0 +1,22 @@
+
+# Node.js dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Temporary and backup files
+*.blend1
+*.blend2
+*.tmp

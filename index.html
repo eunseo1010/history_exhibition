@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Blender에서 만든 3D 맵 모델을 보여주는 가상 공간"
+    />
+    <title>3D 맵 뷰어</title>
+  </head>
+  <body>
+    <main id="viewer" aria-label="3D 맵 뷰어">
+      <canvas id="scene" aria-label="3D 맵 모델"></canvas>
+      <div id="loading" role="status" aria-live="polite">3D 맵을 불러오는 중...</div>
+      <p class="controls-hint">드래그하여 회전 · 스크롤하여 확대/축소</p>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
