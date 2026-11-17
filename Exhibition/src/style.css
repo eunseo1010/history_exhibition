@@ -1,0 +1,43 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#exhibition {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: #090a0b;
+  color: #e8dfd1;
+  font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+}
+
+#scene {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#status {
+  position: fixed;
+  inset: auto 0 1.5rem;
+  margin: 0;
+  color: #d3c5b2;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-shadow: 0 1px 8px #000;
+  pointer-events: none;
+  opacity: 0.8;
+  transition: opacity 600ms ease;
+}
+
+#status[hidden] {
+  opacity: 0;
+}
