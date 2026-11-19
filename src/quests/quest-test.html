@@ -1,0 +1,188 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+  <title>3·1운동 퀘스트 테스트</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 40px 20px;
+      background: #20252d;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    .container {
+      max-width: 650px;
+      margin: auto;
+    }
+
+    h1 {
+      font-size: 28px;
+    }
+
+    .panel {
+      background: #303743;
+      border-radius: 12px;
+      padding: 24px;
+      margin-top: 20px;
+    }
+
+    .objective {
+      color: #f3d58c;
+      margin-top: 12px;
+    }
+
+    button {
+      padding: 12px 18px;
+      margin: 6px 6px 6px 0;
+      border: none;
+      border-radius: 7px;
+      cursor: pointer;
+      background: #e2bd72;
+      color: #20252d;
+      font-weight: bold;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .clue {
+      padding: 15px;
+      margin-top: 12px;
+      background: #404958;
+      border-radius: 8px;
+    }
+
+    .complete {
+      color: #8fe3a5;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>3·1운동 역사 전시관</h1>
+    <p>전시 퀘스트 시스템 기능 테스트</p>
+
+    <div class="panel">
+      <h2 id="quest-title"></h2>
+
+      <p id="objective" class="objective"></p>
+
+      <p id="progress"></p>
+
+      <button id="start-btn">
+        NPC와 대화하여 퀘스트 시작
+      </button>
+
+      <button id="reset-btn">
+        퀘스트 초기화
+      </button>
+    </div>
+
+    <div class="panel">
+      <h2>전시물 조사</h2>
+      <div id="clue-list"></div>
+    </div>
+
+    <div class="panel">
+      <h2>퀘스트 상태</h2>
+      <p id="status"></p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { questSystem } from './QuestSystem.js';
+
+    const titleEl =
+      document.getElementById('quest-title');
+
+    const objectiveEl =
+      document.getElementById('objective');
+
+    const progressEl =
+      document.getElementById('progress');
+
+    const statusEl =
+      document.getElementById('status');
+
+    const clueList =
+      document.getElementById('clue-list');
+
+    const startBtn =
+      document.getElementById('start-btn');
+
+    const resetBtn =
+      document.getElementById('reset-btn');
+
+    startBtn.addEventListener('click', () => {
+      questSystem.startQuest();
+    });
+
+    resetBtn.addEventListener('click', () => {
+      questSystem.resetQuest();
+    });
+
+    questSystem.subscribe((state) => {
+      titleEl.textContent = state.title;
+
+      objectiveEl.textContent = state.objective;
+
+      progressEl.textContent =
+        `단서 수집: ${state.collectedCount} / ${state.totalCount}`;
+
+      startBtn.disabled =
+        state.status !== 'not_started';
+
+      if (state.status === 'not_started') {
+        statusEl.textContent = '시작 전';
+        statusEl.className = '';
+      } else if (state.status === 'in_progress') {
+        statusEl.textContent = '진행 중';
+        statusEl.className = '';
+      } else {
+        statusEl.textContent = '퀘스트 완료!';
+        statusEl.className = 'complete';
+      }
+
+      clueList.replaceChildren();
+
+      state.clues.forEach((clue) => {
+        const item = document.createElement('div');
+        item.className = 'clue';
+
+        const name = document.createElement('h3');
+        name.textContent = clue.title;
+
+        const description = document.createElement('p');
+        description.textContent = clue.description;
+
+        const button = document.createElement('button');
+
+        button.textContent =
+          clue.collected ? '수집 완료 ✓' : '단서 수집';
+
+        button.disabled =
+          state.status !== 'in_progress' ||
+          clue.collected;
+
+        button.addEventListener('click', () => {
+          questSystem.collectClue(clue.id);
+        });
+
+        item.append(name, description, button);
+        clueList.appendChild(item);
+      });
+    });
+  </script>
+</body>
+</html>
