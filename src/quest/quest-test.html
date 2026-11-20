@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>메인 퀘스트 기능 테스트</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; line-height: 1.6; background: #f6f8fb; color: #182333; }
+    h1 { font-size: 1.6rem; }
+    button { margin: 5px 5px 5px 0; padding: 10px 14px; border: 1px solid #bac6d5; border-radius: 7px; background: white; cursor: pointer; }
+    button:hover { background: #eaf1ff; }
+    pre { padding: 16px; background: #172234; color: #d5edff; overflow: auto; border-radius: 8px; }
+    #message { font-weight: 600; min-height: 1.8em; }
+    .warning { color: #9c4c00; }
+  </style>
+</head>
+<body>
+  <h1>3·1운동 전단지 퀘스트 기능 테스트</h1>
+  <p>기존 <code>src/quest/questSystem.js</code>를 직접 불러와 테스트합니다. 실제 저장 상태에 영향을 주므로, 테스트 전용 브라우저 프로필을 권장합니다.</p>
+  <div>
+    <button data-action="start">퀘스트 시작</button>
+    <button data-action="B">NPC B 단서</button>
+    <button data-action="C">NPC C 단서</button>
+    <button data-action="time">시간 정답 제출</button>
+    <button data-action="place">장소 정답 제출</button>
+    <button data-action="U">NPC U에게 전달</button>
+    <button data-action="reset">진행 상태 초기화</button>
+    <button data-action="reload">저장 상태 다시 불러오기</button>
+  </div>
+  <p id="message" role="status">준비 완료</p>
+  <h2>현재 상태</h2>
+  <pre id="state"></pre>
+  <script type="module">
+    import { QuestSystem } from './questSystem.js';
+    let quest = new QuestSystem();
+    const stateElement = document.getElementById('state');
+    const messageElement = document.getElementById('message');
+    function render(message) {
+      messageElement.textContent = message;
+      stateElement.textContent = JSON.stringify(quest.getState(), null, 2);
+    }
+    document.querySelectorAll('[data-action]').forEach(button => {
+      button.addEventListener('click', () => {
+        const action = button.dataset.action;
+        if (action === 'reset') { quest.resetQuest(); render('진행 상태 초기화 완료'); return; }
+        if (action === 'reload') { quest = new QuestSystem(); render('저장된 상태를 다시 불러왔습니다'); return; }
+        const result = action === 'start' ? quest.startQuest()
+          : action === 'B' || action === 'C' ? quest.collectClue(action)
+          : action === 'time' || action === 'place' ? quest.submitAnswer(action, true)
+          : quest.deliverLeaflet('U');
+        render(result ? `${button.textContent} 성공` : `${button.textContent} 실패: 선행 조건 또는 중복 실행 확인`);
+      });
+    });
+    render('저장된 퀘스트 상태를 불러왔습니다');
+  </script>
+</body>
+</html>
