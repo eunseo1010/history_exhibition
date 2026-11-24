@@ -237,10 +237,23 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
     requestRender();
   }
   function isTextInput(element) {
-    return element?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(element?.tagName);
+    return element?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(element?.tagName);
+  }
+  function keyboardKey(event) {
+    const codeKeys = {
+      KeyW: 'w',
+      KeyA: 'a',
+      KeyS: 's',
+      KeyD: 'd',
+      ArrowUp: 'arrowup',
+      ArrowDown: 'arrowdown',
+      ArrowLeft: 'arrowleft',
+      ArrowRight: 'arrowright',
+    };
+    return codeKeys[event.code] ?? event.key?.toLowerCase();
   }
   function keyDown(event) {
-    const key = event.key.toLowerCase();
+    const key = keyboardKey(event);
     if (isTextInput(event.target) || surveyOpen || bridge.isDialogOpen() || gameOver) return;
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
       held.add(key);
@@ -248,7 +261,10 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
       requestRender();
     }
   }
-  function keyUp(event) { held.delete(event.key.toLowerCase()); }
+  function keyUp(event) {
+    const key = keyboardKey(event);
+    if (key) held.delete(key);
+  }
   function blur() { held.clear(); }
   window.addEventListener('keydown', keyDown);
   window.addEventListener('keyup', keyUp);

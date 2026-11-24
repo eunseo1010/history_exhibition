@@ -298,11 +298,15 @@ export function installQuestOnTeamMap(config = {}) {
   }
 
   function onKeyDown(event) {
-    if (event.key === 'Escape') { if (currentNpc) closeDialog(); return; }
-    if (event.key.toLowerCase() !== 'e' || event.repeat || currentNpc) return;
+    if (event.code === 'Escape' || event.key === 'Escape') {
+      if (currentNpc) closeDialog();
+      return;
+    }
+    if ((event.code !== 'KeyE' && event.key?.toLowerCase() !== 'e') ||
+        event.repeat || currentNpc) return;
     if (typeof config.canInteract === 'function' && !config.canInteract()) return;
     const target = event.target;
-    if (target?.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(target?.tagName)) return;
+    if (target?.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target?.tagName)) return;
     const result = closest();
     if (result.id && result.distance <= interactionDistance) {
       event.preventDefault();

@@ -6,6 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import './team-map-game.css';
+import { addMapEnvironment } from './MapEnvironment.js';
 import { installMapQuestIntegration } from './MapQuestIntegration.js';
 
 const canvas = document.querySelector('#scene');
@@ -31,8 +32,8 @@ function drawSkyBackground() {
     skyCanvas.height,
   );
   gradient.addColorStop(0, '#72b7ee');
-  gradient.addColorStop(0.55, '#b9def4');
-  gradient.addColorStop(1, '#e5f1f8');
+  gradient.addColorStop(0.55, '#c5d8de');
+  gradient.addColorStop(1, '#dce5df');
   skyContext.fillStyle = gradient;
   skyContext.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
 }
@@ -198,6 +199,7 @@ controls.addEventListener('change', requestRender);
 let modelRadius = 1;
 let hasModel = false;
 let modelBounds;
+let environmentFarClip = 0;
 
 function updateSunPosition() {
   const distance = camera.far * 0.85;
@@ -231,7 +233,7 @@ function frameModel(bounds) {
     (modelRadius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 1.15;
 
   camera.near = Math.max(modelRadius / 1000, 0.01);
-  camera.far = distance + modelRadius * 10;
+  camera.far = Math.max(distance + modelRadius * 10, environmentFarClip);
   camera.position
     .set(1, 0.72, 1.25)
     .normalize()
@@ -461,6 +463,13 @@ loader.load(
     placement.position.copy(center).negate();
     placement.add(gltf.scene);
     scene.add(placement);
+
+    try {
+      const mapBounds = new THREE.Box3().setFromObject(placement);
+      environmentFarClip = addMapEnvironment(scene, mapBounds).farClip;
+    } catch (error) {
+      console.error('주변 배경 환경을 생성하지 못했습니다.', error);
+    }
 
     configureModelLighting(gltf.scene, bounds, placement);
     addWarmInteriorLights(gltf.scene);
