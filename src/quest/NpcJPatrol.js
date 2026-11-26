@@ -98,6 +98,97 @@ export function installNpcJPatrol({ THREE, npcJ, player, modelRoot, groundAt, ot
   const playerEye = new THREE.Vector3();
   const castVector = new THREE.Vector3();
   const playerEyeHeight = 1.0;
+  const sectorSegments = 48;
+  const viewHeightOffset = 0.035;
+  const halfViewAngle = (settings.fieldOfViewDegrees * Math.PI) / 360;
+  const sectorPositions = [0, 0, 0];
+
+  for (let i = 0; i <= sectorSegments; i++) {
+    const angle = -halfViewAngle + (i / sectorSegments) * halfViewAngle * 2;
+    sectorPositions.push(
+      Math.sin(angle) * settings.sightDistance,
+      0,
+      Math.cos(angle) * settings.sightDistance,
+    );
+  }
+
+  const sectorIndices = [];
+  for (let i = 1; i <= sectorSegments; i++) {
+    sectorIndices.push(0, i, i + 1);
+  }
+
+  const sectorGeometry = new THREE.BufferGeometry();
+  sectorGeometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(sectorPositions, 3),
+  );
+  sectorGeometry.setIndex(sectorIndices);
+  sectorGeometry.computeVertexNormals();
+
+  const viewSector = new THREE.Mesh(
+    sectorGeometry,
+    new THREE.MeshBasicMaterial({
+      color: 0xff3030,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      depthTest: true,
+      side: THREE.DoubleSide,
+    }),
+  );
+  viewSector.name = 'NPC_J_VisionSector';
+  viewSector.renderOrder = 20;
+
+  const borderPositions = [];
+  for (let i = 0; i <= sectorSegments; i++) {
+    const angle = -halfViewAngle + (i / sectorSegments) * halfViewAngle * 2;
+    borderPositions.push(
+      Math.sin(angle) * settings.sightDistance,
+      0,
+      Math.cos(angle) * settings.sightDistance,
+    );
+  }
+  borderPositions.push(
+    0, 0, 0,
+    Math.sin(-halfViewAngle) * settings.sightDistance, 0,
+    Math.cos(-halfViewAngle) * settings.sightDistance,
+    0, 0, 0,
+    Math.sin(halfViewAngle) * settings.sightDistance, 0,
+    Math.cos(halfViewAngle) * settings.sightDistance,
+  );
+
+  const borderGeometry = new THREE.BufferGeometry();
+  borderGeometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(borderPositions, 3),
+  );
+  const viewBorder = new THREE.LineSegments(
+    borderGeometry,
+    new THREE.LineBasicMaterial({
+      color: 0xff3030,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      depthTest: true,
+    }),
+  );
+  viewBorder.name = 'NPC_J_VisionBorder';
+  viewBorder.renderOrder = 21;
+
+  const viewParent = npcJ.parent;
+  if (viewParent) {
+    viewParent.add(viewSector);
+    viewParent.add(viewBorder);
+  }
+
+  function syncViewSector() {
+    const groundY = groundAt(npcJ.position.x, npcJ.position.z);
+    const y = Number.isFinite(groundY) ? groundY + viewHeightOffset : npcJ.position.y + viewHeightOffset;
+    viewSector.position.set(npcJ.position.x, y, npcJ.position.z);
+    viewBorder.position.set(npcJ.position.x, y + 0.006, npcJ.position.z);
+    viewSector.rotation.y = npcJ.rotation.y;
+    viewBorder.rotation.y = npcJ.rotation.y;
+  }
 
   function teleportToRoute() {
     if (path.length) {
@@ -114,6 +205,7 @@ export function installNpcJPatrol({ THREE, npcJ, player, modelRoot, groundAt, ot
       index = (index + 1) % path.length;
     }
     npcJ.updateMatrixWorld(true);
+    syncViewSector();
   }
   teleportToRoute();
 
@@ -168,6 +260,7 @@ export function installNpcJPatrol({ THREE, npcJ, player, modelRoot, groundAt, ot
       }
       npcJ.updateMatrixWorld(true);
     }
+    syncViewSector();
     const withinCone = detectionEnabled && safeStart <= 0 &&
       isInNpcJView(npcJ.position, forward, player.position, settings.sightDistance,
         settings.fieldOfViewDegrees);
@@ -197,6 +290,12 @@ export function installNpcJPatrol({ THREE, npcJ, player, modelRoot, groundAt, ot
     npcJ.position.copy(originalPosition);
     npcJ.rotation.y = originalRotation;
     npcJ.updateMatrixWorld(true);
+    viewSector.removeFromParent();
+    viewBorder.removeFromParent();
+    sectorGeometry.dispose();
+    viewSector.material.dispose();
+    borderGeometry.dispose();
+    viewBorder.material.dispose();
   }
 
   return { update, reset, canPlayerMoveTo, dispose, hasRoute: path.length >= 3, settings };

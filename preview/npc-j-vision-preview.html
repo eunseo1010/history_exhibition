@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NPC J 시야 미리보기</title>
+  <style>
+    html, body, #scene { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: #bfc8c0; font-family: system-ui, sans-serif; }
+    #scene { display: block; }
+    #hud {
+      position: fixed; left: 12px; top: 12px; z-index: 10;
+      max-width: calc(100vw - 24px); padding: 10px 12px;
+      border-radius: 8px; background: #172234e9; color: #fff;
+      font-size: 13px; line-height: 1.5;
+    }
+    #status { color: #ffd9d9; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div id="hud">
+    WASD 이동 · NPC J 시야 미리보기<br />
+    거리 4 · 전방 80° · 빨간 부채꼴은 실제 감지 판정과 동일한 설정 사용<br />
+    <span id="status">시야 밖</span>
+  </div>
+  <script type="module" src="./npc-j-vision-preview.js"></script>
+</body>
+</html>

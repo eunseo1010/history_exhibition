@@ -4,7 +4,14 @@ import { QuestSystem } from './questSystem.js';
 import { installNpcJPatrol, NPC_J_SETTINGS } from './NpcJPatrol.js';
 
 const NPC_IDS = ['A', 'B', 'C', 'U'];
-const GROUND_MARGIN = 0.35;
+const WALL_THICKNESS = { minX: 1.0, maxX: 0.8, minZ: 0.9, maxZ: 0.9 };
+const SOLID_ROOTS = new Set([
+  'Pavilion', 'House', 'Wood', 'Brick_Wall', 'Stairs', 'Gate_Frame',
+  'Gate_L_Door', 'Gate_R_Door', 'Small_bowl', 'Jar_1', 'Well', 'Jar_2',
+  'Brazier', 'Straw_Bag', 'Low_Wooden_Bench', 'Radish_Bowl', 'Carrier', 'Broom',
+  'Tree_Zelkova', 'Tree_Dark_Zelkova',
+]);
+const TREE_TRUNK_MATERIALS = new Set(['M_Zelkova_03', 'M_Zelkova_01']);
 const MOVE_SPEED = 3.3;
 const INTERACTION_DISTANCE = 1.9;
 const surveyKey = 'history_exhibition_survey';
@@ -33,19 +40,109 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
     if (!npcObjects[id]) throw new Error(`퀘스트 시작 실패: NPC ${id} 객체가 없습니다.`);
   }
 
+  const stairsMesh = modelRoot.getObjectByName('Stairs');
+  if (!stairsMesh?.isMesh) throw new Error('계단 이동에 필요한 Stairs 메시를 찾지 못했습니다.');
   const surfaces = [];
   modelRoot.traverse((object) => {
-    if (object.isMesh && groundNames.has(object.name)) surfaces.push(object);
+    if (object.isMesh &&
+        (groundNames.has(object.name) || object === stairsMesh ||
+         object.parent?.name === 'Stairs_Pavers')) {
+      surfaces.push(object);
+    }
   });
   if (!surfaces.length) throw new Error('퀘스트 이동 지면을 찾지 못했습니다.');
 
   scene.updateMatrixWorld(true);
+  const mainField = modelRoot.getObjectByName('Main_Field');
+  const brickWall = modelRoot.getObjectByName('Brick_Wall');
+  if (!mainField || !brickWall) {
+    throw new Error('맵 외곽 이동 제한에 필요한 Main_Field 또는 Brick_Wall 오브젝트가 없습니다.');
+  }
+  const fieldBounds = new THREE.Box3().setFromObject(mainField);
+  const wallBounds = new THREE.Box3().setFromObject(brickWall);
+  const walkBounds = new THREE.Box3(
+    new THREE.Vector3(
+      wallBounds.min.x + WALL_THICKNESS.minX,
+      fieldBounds.min.y,
+      wallBounds.min.z + WALL_THICKNESS.minZ,
+    ),
+    new THREE.Vector3(
+      wallBounds.max.x - WALL_THICKNESS.maxX,
+      fieldBounds.max.y,
+      wallBounds.max.z - WALL_THICKNESS.maxZ,
+    ),
+  );
+  const cameraBounds = new THREE.Box3(
+    new THREE.Vector3(
+      walkBounds.min.x + 0.15,
+      wallBounds.min.y,
+      walkBounds.min.z + 0.15,
+    ),
+    new THREE.Vector3(
+      walkBounds.max.x - 0.15,
+      wallBounds.max.y,
+      walkBounds.max.z - 0.15,
+    ),
+  );
   const ray = new THREE.Raycaster();
+  const collisionRay = new THREE.Raycaster();
   ray.far = mapBounds.getSize(new THREE.Vector3()).y + 100;
   const top = mapBounds.max.y + 10;
   const npcAPos = npcObjects.A.getWorldPosition(new THREE.Vector3());
   const npcHeight = new THREE.Box3().setFromObject(npcObjects.A).getSize(new THREE.Vector3()).y;
   const height = THREE.MathUtils.clamp(npcHeight * 0.65, 0.75, 1.7);
+  const playerRadius = height * 0.32 + 0.02;
+  const safeBounds = new THREE.Box3(
+    new THREE.Vector3(
+      walkBounds.min.x + playerRadius,
+      fieldBounds.min.y,
+      walkBounds.min.z + playerRadius,
+    ),
+    new THREE.Vector3(
+      walkBounds.max.x - playerRadius,
+      fieldBounds.max.y,
+      walkBounds.max.z - playerRadius,
+    ),
+  );
+  const collisionSlices = [0.1, 0.3, 0.55, 0.78, 0.98, 1.1, 1.17]
+    .map((fraction) => {
+      const y = height * fraction;
+      const bodyBottom = height * 0.055;
+      const bodyTop = height * 0.805;
+      let radius = 0;
+      if (y >= bodyBottom && y <= bodyTop) {
+        const bodyProgress = (y - bodyBottom) / (bodyTop - bodyBottom);
+        radius = THREE.MathUtils.lerp(height * 0.32, height * 0.24, bodyProgress);
+      }
+      const headRadius = height * 0.21;
+      const headDistance = Math.abs(y - height * 0.98);
+      if (headDistance < headRadius) {
+        radius = Math.max(radius, Math.sqrt(headRadius ** 2 - headDistance ** 2));
+      }
+      return { y, radius: radius + 0.02 };
+    })
+    .filter((slice) => slice.radius > 0.02);
+  const stairTopLevels = new Set();
+  const stairPositions = stairsMesh.geometry.getAttribute('position');
+  const stairIndices = stairsMesh.geometry.index;
+  const stairVertexCount = stairIndices ? stairIndices.count : stairPositions.count;
+  for (let index = 0; index < stairVertexCount; index += 3) {
+    const ia = stairIndices ? stairIndices.getX(index) : index;
+    const ib = stairIndices ? stairIndices.getX(index + 1) : index + 1;
+    const ic = stairIndices ? stairIndices.getX(index + 2) : index + 2;
+    const a = new THREE.Vector3().fromBufferAttribute(stairPositions, ia).applyMatrix4(stairsMesh.matrixWorld);
+    const b = new THREE.Vector3().fromBufferAttribute(stairPositions, ib).applyMatrix4(stairsMesh.matrixWorld);
+    const c = new THREE.Vector3().fromBufferAttribute(stairPositions, ic).applyMatrix4(stairsMesh.matrixWorld);
+    const normalY = b.clone().sub(a).cross(c.clone().sub(a)).normalize().y;
+    if (normalY > 0.95) stairTopLevels.add(Number(((a.y + b.y + c.y) / 3).toFixed(3)));
+  }
+  const sortedStairLevels = [...stairTopLevels].sort((a, b) => a - b);
+  let maxStairRise = 0;
+  for (let index = 1; index < sortedStairLevels.length; index += 1) {
+    maxStairRise = Math.max(maxStairRise, sortedStairLevels[index] - sortedStairLevels[index - 1]);
+  }
+  if (maxStairRise <= 0) throw new Error('Stairs 메시에서 계단 표면 높이를 계산하지 못했습니다.');
+  maxStairRise += 0.025;
   const player = new THREE.Group();
   player.name = 'QUEST_PLAYER';
   const body = new THREE.Mesh(
@@ -62,13 +159,129 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   head.castShadow = true;
   player.add(body, head);
 
-  function groundAt(x, z) {
-    if (x < mapBounds.min.x + GROUND_MARGIN || x > mapBounds.max.x - GROUND_MARGIN ||
-        z < mapBounds.min.z + GROUND_MARGIN || z > mapBounds.max.z - GROUND_MARGIN) return null;
+  function groundInfoAt(x, z) {
+    if (x < walkBounds.min.x || x > walkBounds.max.x ||
+        z < walkBounds.min.z || z > walkBounds.max.z) return null;
     ray.set(new THREE.Vector3(x, top, z), new THREE.Vector3(0, -1, 0));
     const hit = ray.intersectObjects(surfaces, false)[0];
-    return hit ? hit.point.y : null;
+    return hit ? { y: hit.point.y, object: hit.object } : null;
   }
+
+  function groundAt(x, z) {
+    return groundInfoAt(x, z)?.y ?? null;
+  }
+
+  const npcJObject = scene.getObjectByName('NPC_J');
+  const solidColliders = [];
+  function addSolidCollider(object, label, dynamic = false) {
+    if (!object.isMesh) return;
+    const bounds = new THREE.Box3().setFromObject(object);
+    if (!bounds.isEmpty()) solidColliders.push({ object, bounds, label, dynamic });
+  }
+  modelRoot.traverse((object) => {
+    if (!object.isMesh) return;
+    let root = object;
+    while (root && root !== modelRoot && !SOLID_ROOTS.has(root.name)) root = root.parent;
+    if (!root || root === modelRoot) return;
+    if (root.name === 'Tree_Zelkova' || root.name === 'Tree_Dark_Zelkova') {
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      if (!materials.some((material) => TREE_TRUNK_MATERIALS.has(material?.name))) return;
+    }
+    addSolidCollider(object, root.name.replaceAll('_', ' '));
+  });
+  for (const id of NPC_IDS) {
+    npcObjects[id].traverse((object) => addSolidCollider(object, `NPC ${id}`));
+  }
+  if (npcJObject) {
+    npcJObject.traverse((object) => addSolidCollider(object, 'NPC J', true));
+  }
+
+  function firstSolidCollision(from, to, fromGround, toGround, movementDirection) {
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 0.0001) return null;
+    const probeGrounds = [0.25, 0.5, 0.75, 1].map((fraction) =>
+      groundInfoAt(
+        to.x + movementDirection.x * playerRadius * fraction,
+        to.z + movementDirection.z * playerRadius * fraction,
+      ));
+    const heightChange = Math.abs(to.y - from.y);
+    const frontStepAvailable = probeGrounds.some((ground) =>
+      ground?.object === stairsMesh && Math.abs(ground.y - from.y) <= maxStairRise);
+    const stairStepAllowed = heightChange <= maxStairRise &&
+      [fromGround, toGround, ...probeGrounds].some((ground) => ground?.object === stairsMesh) &&
+      (toGround?.object === stairsMesh || frontStepAvailable || fromGround?.object === stairsMesh);
+    const rayDirection = new THREE.Vector3(dx / distance, 0, dz / distance);
+    const sweptBounds = new THREE.Box3(
+      new THREE.Vector3(
+        Math.min(from.x, to.x) - playerRadius,
+        from.y + height * 0.055,
+        Math.min(from.z, to.z) - playerRadius,
+      ),
+      new THREE.Vector3(
+        Math.max(from.x, to.x) + playerRadius,
+        from.y + height * 1.19,
+        Math.max(from.z, to.z) + playerRadius,
+      ),
+    );
+    const nearby = solidColliders.filter((collider) => {
+      if (collider.dynamic) collider.bounds.setFromObject(collider.object);
+      return collider.bounds.intersectsBox(sweptBounds);
+    });
+    if (!nearby.length) return null;
+
+    collisionRay.far = distance + 0.025;
+    for (const slice of collisionSlices) {
+      for (let sample = 0; sample <= 16; sample++) {
+        const angle = sample === 16 ? 0 : (sample / 16) * Math.PI * 2;
+        const offsetX = sample === 16 ? 0 : Math.cos(angle) * slice.radius;
+        const offsetZ = sample === 16 ? 0 : Math.sin(angle) * slice.radius;
+        const origin = new THREE.Vector3(
+          from.x + offsetX,
+          from.y + slice.y,
+          from.z + offsetZ,
+        );
+        const rayBounds = new THREE.Box3(
+          new THREE.Vector3(
+            origin.x + Math.min(0, dx),
+            origin.y,
+            origin.z + Math.min(0, dz),
+          ),
+          new THREE.Vector3(
+            origin.x + Math.max(0, dx),
+            origin.y,
+            origin.z + Math.max(0, dz),
+          ),
+        );
+        collisionRay.set(origin, rayDirection);
+        for (const collider of nearby) {
+          if (!collider.bounds.intersectsBox(rayBounds)) continue;
+          const hit = collisionRay.intersectObject(collider.object, false)[0];
+          if (!hit || hit.distance > distance + 0.025) continue;
+          if (collider.object === stairsMesh && stairStepAllowed) continue;
+          return collider.label;
+        }
+      }
+    }
+    return null;
+  }
+
+  function constrainCamera() {
+    const previousX = camera.position.x;
+    const previousZ = camera.position.z;
+    camera.position.x = THREE.MathUtils.clamp(
+      camera.position.x, cameraBounds.min.x, cameraBounds.max.x,
+    );
+    camera.position.z = THREE.MathUtils.clamp(
+      camera.position.z, cameraBounds.min.z, cameraBounds.max.z,
+    );
+    if (camera.position.x !== previousX || camera.position.z !== previousZ) {
+      camera.lookAt(controls.target);
+    }
+  }
+
+  controls.addEventListener('change', constrainCamera);
 
   // Find a walkable position near NPC A but outside E-interaction range.
   const offsets = [[0, 2.8], [2.8, 0], [-2.8, 0], [0, -2.8], [0, 1.9]];
@@ -92,13 +305,17 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   let gameOver = false;
   let npcJPatrol = null;
   let surveyOpen = false;
-  let follow = false;
+  let follow = true;
   const held = new Set();
+  const cameraForward = new THREE.Vector3();
+  const cameraRight = new THREE.Vector3();
+  const worldUp = new THREE.Vector3(0, 1, 0);
+  const moveDirection = new THREE.Vector3();
   const quest = new QuestSystem();
   const bridge = installQuestOnTeamMap({
     player, npcObjects, THREE, camera,
     interactionDistance: INTERACTION_DISTANCE,
-    collisionRadius: Math.min(0.55, height * 0.45),
+    collisionRadius: playerRadius,
     quest,
     canInteract: () => !surveyOpen && !gameOver,
     onStateChange: requestRender,
@@ -148,7 +365,6 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   gameOverScreen.appendChild(gameOverPanel);
   document.body.appendChild(gameOverScreen);
 
-  const npcJObject = scene.getObjectByName('NPC_J');
   if (npcJObject) {
     npcJPatrol = installNpcJPatrol({
       THREE, npcJ: npcJObject, player, modelRoot, groundAt, otherNpcs: npcObjects,
@@ -231,9 +447,12 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   function focusPlayer() {
     follow = true;
     const position = player.position;
-    controls.target.set(position.x, position.y + height * 0.7, position.z);
-    camera.position.copy(controls.target).add(new THREE.Vector3(7, 6, 9));
+    controls.target.set(position.x, position.y + height * 0.65, position.z);
+    camera.position.copy(controls.target).add(new THREE.Vector3(8, 10, 7));
+    controls.minDistance = 9;
+    controls.maxDistance = 18;
     controls.update();
+    constrainCamera();
     requestRender();
   }
   function isTextInput(element) {
@@ -269,6 +488,7 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   window.addEventListener('keydown', keyDown);
   window.addEventListener('keyup', keyUp);
   window.addEventListener('blur', blur);
+  focusPlayer();
 
   function update(delta) {
     const locked = surveyOpen || bridge.isDialogOpen() || gameOver;
@@ -277,21 +497,68 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
     const z = Number(held.has('s') || held.has('arrowdown')) - Number(held.has('w') || held.has('arrowup'));
     let changed = false;
     if (!locked && (x !== 0 || z !== 0) && delta > 0) {
-      const length = Math.hypot(x, z);
+      camera.getWorldDirection(cameraForward);
+      cameraForward.y = 0;
+      if (cameraForward.lengthSq() < 0.000001) {
+        cameraRight.setFromMatrixColumn(camera.matrixWorld, 0);
+        cameraRight.y = 0;
+        if (cameraRight.lengthSq() < 0.000001) cameraRight.set(1, 0, 0);
+        cameraRight.normalize();
+        cameraForward.crossVectors(worldUp, cameraRight).normalize();
+      } else {
+        cameraForward.normalize();
+        cameraRight.crossVectors(cameraForward, worldUp).normalize();
+      }
+      moveDirection
+        .set(0, 0, 0)
+        .addScaledVector(cameraRight, x)
+        .addScaledVector(cameraForward, -z);
+      if (moveDirection.lengthSq() > 1) moveDirection.normalize();
       const oldPosition = player.position.clone();
-      const nextX = oldPosition.x + (x / length) * MOVE_SPEED * delta;
-      const nextZ = oldPosition.z + (z / length) * MOVE_SPEED * delta;
-      const nextY = groundAt(nextX, nextZ);
-      if (nextY !== null && bridge.canMoveTo({ x: nextX, z: nextZ }) &&
-          (!npcJPatrol || npcJPatrol.canPlayerMoveTo(nextX, nextZ))) {
-        player.position.set(nextX, nextY, nextZ);
-        player.rotation.y = Math.atan2(x, z);
+      const fromGround = groundInfoAt(oldPosition.x, oldPosition.z);
+      const stepX = moveDirection.x * MOVE_SPEED * delta;
+      const stepZ = moveDirection.z * MOVE_SPEED * delta;
+      const candidates = [[oldPosition.x + stepX, oldPosition.z + stepZ]];
+      if (stepX !== 0 && stepZ !== 0) {
+        candidates.push([oldPosition.x + stepX, oldPosition.z]);
+        candidates.push([oldPosition.x, oldPosition.z + stepZ]);
+      }
+
+      for (const [candidateX, candidateZ] of candidates) {
+        const nextX = THREE.MathUtils.clamp(
+          candidateX, safeBounds.min.x, safeBounds.max.x,
+        );
+        const nextZ = THREE.MathUtils.clamp(
+          candidateZ, safeBounds.min.z, safeBounds.max.z,
+        );
+        if (Math.hypot(nextX - oldPosition.x, nextZ - oldPosition.z) < 0.0001) continue;
+        const nextGround = groundInfoAt(nextX, nextZ);
+        if (!nextGround) continue;
+        const attemptDirection = new THREE.Vector3(
+          nextX - oldPosition.x, 0, nextZ - oldPosition.z,
+        ).normalize();
+        if (firstSolidCollision(
+              oldPosition,
+              { x: nextX, y: nextGround.y, z: nextZ },
+              fromGround,
+              nextGround,
+              attemptDirection,
+            ) ||
+            !bridge.canMoveTo({ x: nextX, z: nextZ }) ||
+            (npcJPatrol && !npcJPatrol.canPlayerMoveTo(nextX, nextZ))) continue;
+
+        player.position.set(nextX, nextGround.y, nextZ);
+        player.rotation.y = Math.atan2(moveDirection.x, moveDirection.z);
         if (follow) {
           const diff = player.position.clone().sub(oldPosition);
           camera.position.add(diff);
           controls.target.add(diff);
+          constrainCamera();
+        } else {
+          focusPlayer();
         }
         changed = true;
+        break;
       }
     }
     const npcJChanged = npcJPatrol?.update(delta, !quest.isCompleted()) ?? false;
@@ -300,10 +567,12 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   }
   return {
     update,
+    focusPlayer,
     dispose() {
       window.removeEventListener('keydown', keyDown);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('blur', blur);
+      controls.removeEventListener('change', constrainCamera);
       bridge.dispose();
       npcJPatrol?.dispose();
       jWarning.remove();

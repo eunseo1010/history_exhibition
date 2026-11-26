@@ -31,9 +31,10 @@ function drawSkyBackground() {
     0,
     skyCanvas.height,
   );
-  gradient.addColorStop(0, '#72b7ee');
-  gradient.addColorStop(0.55, '#c5d8de');
-  gradient.addColorStop(1, '#dce5df');
+  gradient.addColorStop(0, '#b8a6a4');
+  gradient.addColorStop(0.48, '#e8b7a5');
+  gradient.addColorStop(0.78, '#ffd5b1');
+  gradient.addColorStop(1, '#fff0e4');
   skyContext.fillStyle = gradient;
   skyContext.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
 }
@@ -54,16 +55,16 @@ if (!sunContext) {
 }
 
 const sunGlow = sunContext.createRadialGradient(64, 64, 0, 64, 64, 64);
-sunGlow.addColorStop(0, 'rgba(255, 213, 127, 0.36)');
-sunGlow.addColorStop(0.35, 'rgba(255, 193, 91, 0.2)');
-sunGlow.addColorStop(1, 'rgba(255, 172, 58, 0)');
+sunGlow.addColorStop(0, 'rgba(255, 220, 157, 0.42)');
+sunGlow.addColorStop(0.35, 'rgba(255, 194, 116, 0.26)');
+sunGlow.addColorStop(1, 'rgba(255, 180, 90, 0)');
 sunContext.fillStyle = sunGlow;
 sunContext.fillRect(0, 0, sunCanvas.width, sunCanvas.height);
 
 const sunDisc = sunContext.createRadialGradient(64, 64, 0, 64, 64, 19);
-sunDisc.addColorStop(0, 'rgba(255, 232, 147, 0.96)');
-sunDisc.addColorStop(0.68, 'rgba(255, 207, 102, 0.9)');
-sunDisc.addColorStop(1, 'rgba(255, 178, 62, 0)');
+sunDisc.addColorStop(0, 'rgba(255, 244, 205, 0.96)');
+sunDisc.addColorStop(0.68, 'rgba(255, 215, 139, 0.92)');
+sunDisc.addColorStop(1, 'rgba(255, 190, 105, 0)');
 sunContext.fillStyle = sunDisc;
 sunContext.fillRect(45, 45, 38, 38);
 
@@ -72,7 +73,7 @@ sunTexture.colorSpace = THREE.SRGBColorSpace;
 const sunSprite = new THREE.Sprite(
   new THREE.SpriteMaterial({
     map: sunTexture,
-    color: 0xffc94a,
+    color: 0xffd17a,
     depthWrite: false,
     opacity: 0.9,
     toneMapped: false,
@@ -80,6 +81,7 @@ const sunSprite = new THREE.Sprite(
   }),
 );
 sunSprite.renderOrder = 1;
+sunSprite.visible = false;
 scene.add(sunSprite);
 
 const glowCanvas = document.createElement('canvas');
@@ -111,7 +113,7 @@ const windowGlowMaterial = new THREE.SpriteMaterial({
 });
 
 const camera = new THREE.PerspectiveCamera(
-  45,
+  40,
   window.innerWidth / window.innerHeight,
   0.1,
   1000,
@@ -126,18 +128,20 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1;
+renderer.toneMappingExposure = 1.24;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.VSMShadowMap;
 
-scene.add(new THREE.HemisphereLight(0xfff4e5, 0x59634f, 1.15));
+scene.add(new THREE.HemisphereLight(0xffe0d3, 0x343b46, 0.88));
 
-const keyLight = new THREE.DirectionalLight(0xfff2dc, 2.4);
+const sunDirection = new THREE.Vector3(0.42, 0.82, 0.38).normalize();
+const keyLight = new THREE.DirectionalLight(0xffc06a, 4.3);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(2048, 2048);
 keyLight.shadow.bias = -0.00015;
 keyLight.shadow.normalBias = 0.015;
-keyLight.shadow.radius = 3;
+keyLight.shadow.radius = 4;
+keyLight.shadow.blurSamples = 8;
 keyLight.shadow.autoUpdate = false;
 scene.add(keyLight);
 
@@ -169,6 +173,7 @@ resizeAmbientOcclusion(window.innerWidth, window.innerHeight);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
+controls.enablePan = false;
 
 let renderRequest = null;
 let questIntegration = null;
@@ -186,7 +191,6 @@ function renderFrame(time) {
   previousRenderTime = time;
   const questIsMoving = questIntegration?.update(delta) ?? false;
   const controlsChanged = controls.update();
-  updateSunPosition();
   composer.render();
 
   if (controlsChanged || questIsMoving) {
@@ -201,25 +205,6 @@ let hasModel = false;
 let modelBounds;
 let environmentFarClip = 0;
 
-function updateSunPosition() {
-  const distance = camera.far * 0.85;
-  const visibleHeight =
-    2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-  const visibleWidth = visibleHeight * camera.aspect;
-  const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(
-    camera.quaternion,
-  );
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-
-  sunSprite.position
-    .copy(camera.position)
-    .addScaledVector(direction, distance)
-    .addScaledVector(right, visibleWidth * 0.28)
-    .addScaledVector(up, visibleHeight * 0.26);
-  sunSprite.scale.setScalar(visibleHeight * 0.055);
-}
-
 function frameModel(bounds) {
   modelBounds = bounds;
   const sphere = bounds.getBoundingSphere(new THREE.Sphere());
@@ -230,7 +215,7 @@ function frameModel(bounds) {
     Math.tan(verticalFov / 2) * camera.aspect,
   );
   const distance =
-    (modelRadius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 1.15;
+    (modelRadius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * 0.88;
 
   camera.near = Math.max(modelRadius / 1000, 0.01);
   camera.far = Math.max(distance + modelRadius * 10, environmentFarClip);
@@ -242,10 +227,9 @@ function frameModel(bounds) {
   camera.updateProjectionMatrix();
 
   controls.target.set(0, 0, 0);
-  controls.minDistance = modelRadius * 0.1;
-  controls.maxDistance = distance * 10;
+  controls.minDistance = Math.max(modelRadius * 0.12, 4.5);
+  controls.maxDistance = Math.max(distance * 1.25, 12);
   controls.update();
-  updateSunPosition();
 }
 
 function configureModelLighting(model, bounds, placement) {
@@ -253,11 +237,12 @@ function configureModelLighting(model, bounds, placement) {
   const sphere = centeredBounds.getBoundingSphere(new THREE.Sphere());
   const center = centeredBounds.getCenter(new THREE.Vector3());
   const radius = Math.max(sphere.radius, 0.01);
-  const sunDirection = new THREE.Vector3(-0.65, 1, 0.55).normalize();
-
-  keyLight.position.copy(center).addScaledVector(sunDirection, radius * 2.5);
+  keyLight.position.copy(center).addScaledVector(sunDirection, radius * 1.8);
   keyLight.target.position.copy(center);
   scene.add(keyLight.target);
+  sunSprite.position.copy(keyLight.position);
+  sunSprite.scale.setScalar(radius * 0.09);
+  sunSprite.visible = true;
 
   const shadowCamera = keyLight.shadow.camera;
   const shadowExtent = radius * 1.15;
@@ -266,7 +251,7 @@ function configureModelLighting(model, bounds, placement) {
   shadowCamera.top = shadowExtent;
   shadowCamera.bottom = -shadowExtent;
   shadowCamera.near = Math.max(radius * 0.005, 0.1);
-  shadowCamera.far = radius * 5;
+  shadowCamera.far = radius * 8;
   shadowCamera.updateProjectionMatrix();
 
   ambientOcclusion.minDistance = radius * 0.0002;
@@ -464,8 +449,8 @@ loader.load(
     placement.add(gltf.scene);
     scene.add(placement);
 
+    const mapBounds = new THREE.Box3().setFromObject(placement);
     try {
-      const mapBounds = new THREE.Box3().setFromObject(placement);
       environmentFarClip = addMapEnvironment(scene, mapBounds).farClip;
     } catch (error) {
       console.error('주변 배경 환경을 생성하지 못했습니다.', error);
@@ -535,10 +520,6 @@ function resize() {
   renderer.setSize(width, height);
   composer.setSize(width, height);
   resizeAmbientOcclusion(width, height);
-
-  if (hasModel && modelBounds) {
-    frameModel(modelBounds);
-  }
 
   requestRender();
 }

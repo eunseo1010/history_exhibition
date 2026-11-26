@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const FOG_COLOR = 0xdce5df;
+const FOG_COLOR = 0xf1c4ad;
 const FOG_DENSITY = 0.0032;
 
 const FOREST_LAYOUT = [
@@ -81,7 +81,7 @@ export function addMapEnvironment(scene, mapBounds) {
 
   const ground = new THREE.Mesh(
     new THREE.ShapeGeometry(groundShape),
-    makeMaterial(0x899c73),
+    makeMaterial(0x9b7759),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = groundY;
@@ -90,9 +90,9 @@ export function addMapEnvironment(scene, mapBounds) {
 
   const hillGeometry = new THREE.IcosahedronGeometry(1, 1);
   const hillMaterials = [
-    makeMaterial(0x899b86),
-    makeMaterial(0x9aaa91),
-    makeMaterial(0x7f927f),
+    makeMaterial(0xa58b68),
+    makeMaterial(0xb29a78),
+    makeMaterial(0x92755b),
   ];
   for (const [direction, distanceScale, sizeScale] of HILL_LAYOUT) {
     const angle = direction * Math.PI;
