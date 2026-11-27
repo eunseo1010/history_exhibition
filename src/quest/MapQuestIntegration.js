@@ -13,6 +13,11 @@ const SOLID_ROOTS = new Set([
 ]);
 const TREE_TRUNK_MATERIALS = new Set(['M_Zelkova_03', 'M_Zelkova_01']);
 const MOVE_SPEED = 3.3;
+const JUMP_SETTINGS = Object.freeze({
+  height: 1.05,
+  gravity: 20,
+  maxFallSpeed: 17,
+});
 const INTERACTION_DISTANCE = 1.9;
 const surveyKey = 'history_exhibition_survey';
 
@@ -196,7 +201,7 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
     npcJObject.traverse((object) => addSolidCollider(object, 'NPC J', true));
   }
 
-  function firstSolidCollision(from, to, fromGround, toGround, movementDirection) {
+  function firstSolidCollision(from, to, fromGround, toGround, movementDirection, canStepOnStairs) {
     const dx = to.x - from.x;
     const dz = to.z - from.z;
     const distance = Math.hypot(dx, dz);
@@ -209,7 +214,7 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
     const heightChange = Math.abs(to.y - from.y);
     const frontStepAvailable = probeGrounds.some((ground) =>
       ground?.object === stairsMesh && Math.abs(ground.y - from.y) <= maxStairRise);
-    const stairStepAllowed = heightChange <= maxStairRise &&
+    const stairStepAllowed = canStepOnStairs && heightChange <= maxStairRise &&
       [fromGround, toGround, ...probeGrounds].some((ground) => ground?.object === stairsMesh) &&
       (toGround?.object === stairsMesh || frontStepAvailable || fromGround?.object === stairsMesh);
     const rayDirection = new THREE.Vector3(dx / distance, 0, dz / distance);
@@ -267,6 +272,43 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
     return null;
   }
 
+  function maxVerticalRise(x, z, baseY, requestedRise) {
+    if (requestedRise <= 0) return requestedRise;
+    const sweptBounds = new THREE.Box3(
+      new THREE.Vector3(x - playerRadius, baseY + height * 0.055, z - playerRadius),
+      new THREE.Vector3(x + playerRadius, baseY + requestedRise + height * 1.19, z + playerRadius),
+    );
+    const nearby = solidColliders.filter((collider) => {
+      if (collider.dynamic) collider.bounds.setFromObject(collider.object);
+      return collider.bounds.intersectsBox(sweptBounds);
+    });
+    if (!nearby.length) return requestedRise;
+
+    const offsets = [
+      [0, 0],
+      [playerRadius * 0.7, 0],
+      [-playerRadius * 0.7, 0],
+      [0, playerRadius * 0.7],
+      [0, -playerRadius * 0.7],
+    ];
+    const sampleHeights = [height * 0.55, height * 0.98, height * 1.17];
+    let allowedRise = requestedRise;
+    collisionRay.far = requestedRise + 0.025;
+    for (const [offsetX, offsetZ] of offsets) {
+      for (const sampleHeight of sampleHeights) {
+        collisionRay.set(
+          new THREE.Vector3(x + offsetX, baseY + sampleHeight, z + offsetZ),
+          new THREE.Vector3(0, 1, 0),
+        );
+        for (const hit of collisionRay.intersectObjects(nearby.map((collider) => collider.object), false)) {
+          if (hit.distance < allowedRise) allowedRise = Math.max(0, hit.distance - 0.025);
+          break;
+        }
+      }
+    }
+    return allowedRise;
+  }
+
   function constrainCamera() {
     const previousX = camera.position.x;
     const previousZ = camera.position.z;
@@ -303,6 +345,8 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   const playerSpawn = player.position.clone();
 
   let gameOver = false;
+  let isGrounded = true;
+  let verticalVelocity = 0;
   let npcJPatrol = null;
   let surveyOpen = false;
   let follow = true;
@@ -323,7 +367,7 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   });
 
   const bar = node('div', '', 'position:fixed;left:12px;top:12px;z-index:80;max-width:calc(100vw - 24px);padding:10px;background:#182434eb;border-radius:10px;color:#fff;font:13px/1.5 system-ui;display:flex;gap:8px;align-items:center;flex-wrap:wrap;');
-  const instruction = node('span', 'WASD: 이동 · E: 가까운 NPC와 대화 · 마우스: 맵 회전/확대');
+  const instruction = node('span', 'WASD: 이동 · Space: 점프 · E: 가까운 NPC와 대화 · 마우스: 맵 회전/확대');
   const difficultyText = node('span', '난이도: 보통', 'font-weight:700;');
   const surveyButton = btn('설문', openSurvey);
   const focusButton = btn('플레이어 보기', focusPlayer);
@@ -352,6 +396,8 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
     node('p', '일본군에게 발각되었습니다. 중앙 순찰 경로와 시야를 피해 이동하세요.\n다시 시도해도 수집한 단서와 퀘스트 기록은 유지됩니다.', 'white-space:pre-line;margin:0 0 18px;'),
     btn('다시 시도', () => {
       player.position.copy(playerSpawn);
+      verticalVelocity = 0;
+      isGrounded = true;
       npcJPatrol?.reset();
       gameOver = false;
       held.clear();
@@ -474,6 +520,15 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
   function keyDown(event) {
     const key = keyboardKey(event);
     if (isTextInput(event.target) || surveyOpen || bridge.isDialogOpen() || gameOver) return;
+    if (event.code === 'Space') {
+      event.preventDefault();
+      if (!event.repeat && isGrounded) {
+        verticalVelocity = Math.sqrt(2 * JUMP_SETTINGS.gravity * JUMP_SETTINGS.height);
+        isGrounded = false;
+        requestRender();
+      }
+      return;
+    }
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
       held.add(key);
       if (key.startsWith('arrow')) event.preventDefault();
@@ -496,6 +551,7 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
     const x = Number(held.has('d') || held.has('arrowright')) - Number(held.has('a') || held.has('arrowleft'));
     const z = Number(held.has('s') || held.has('arrowdown')) - Number(held.has('w') || held.has('arrowup'));
     let changed = false;
+    const oldPosition = player.position.clone();
     if (!locked && (x !== 0 || z !== 0) && delta > 0) {
       camera.getWorldDirection(cameraForward);
       cameraForward.y = 0;
@@ -514,7 +570,6 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
         .addScaledVector(cameraRight, x)
         .addScaledVector(cameraForward, -z);
       if (moveDirection.lengthSq() > 1) moveDirection.normalize();
-      const oldPosition = player.position.clone();
       const fromGround = groundInfoAt(oldPosition.x, oldPosition.z);
       const stepX = moveDirection.x * MOVE_SPEED * delta;
       const stepZ = moveDirection.z * MOVE_SPEED * delta;
@@ -534,20 +589,23 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
         if (Math.hypot(nextX - oldPosition.x, nextZ - oldPosition.z) < 0.0001) continue;
         const nextGround = groundInfoAt(nextX, nextZ);
         if (!nextGround) continue;
+        if (!isGrounded && nextGround.y > oldPosition.y + 0.05) continue;
+        const nextY = isGrounded ? nextGround.y : oldPosition.y;
         const attemptDirection = new THREE.Vector3(
           nextX - oldPosition.x, 0, nextZ - oldPosition.z,
         ).normalize();
         if (firstSolidCollision(
               oldPosition,
-              { x: nextX, y: nextGround.y, z: nextZ },
+              { x: nextX, y: nextY, z: nextZ },
               fromGround,
               nextGround,
               attemptDirection,
+              isGrounded,
             ) ||
             !bridge.canMoveTo({ x: nextX, z: nextZ }) ||
             (npcJPatrol && !npcJPatrol.canPlayerMoveTo(nextX, nextZ))) continue;
 
-        player.position.set(nextX, nextGround.y, nextZ);
+        player.position.set(nextX, nextY, nextZ);
         player.rotation.y = Math.atan2(moveDirection.x, moveDirection.z);
         if (follow) {
           const diff = player.position.clone().sub(oldPosition);
@@ -561,9 +619,50 @@ export function installMapQuestIntegration({ scene, camera, controls, modelRoot,
         break;
       }
     }
+    if (!locked && !isGrounded && delta > 0) {
+      const step = Math.min(delta, 0.06);
+      const previousVelocity = verticalVelocity;
+      const nextVelocity = Math.max(
+        previousVelocity - JUMP_SETTINGS.gravity * step,
+        -JUMP_SETTINGS.maxFallSpeed,
+      );
+      let verticalStep = (previousVelocity + nextVelocity) * 0.5 * step;
+      verticalVelocity = nextVelocity;
+
+      if (verticalStep > 0) {
+        const safeRise = maxVerticalRise(
+          player.position.x,
+          player.position.z,
+          player.position.y,
+          verticalStep,
+        );
+        if (safeRise < verticalStep) verticalVelocity = 0;
+        verticalStep = safeRise;
+      }
+
+      const ground = groundInfoAt(player.position.x, player.position.z);
+      const nextY = player.position.y + verticalStep;
+      if (verticalVelocity <= 0 && ground && nextY <= ground.y &&
+          player.position.y >= ground.y - 0.05) {
+        player.position.y = ground.y;
+        verticalVelocity = 0;
+        isGrounded = true;
+      } else {
+        player.position.y = nextY;
+      }
+
+      const verticalChange = player.position.y - oldPosition.y;
+      if (Math.abs(verticalChange) > 0.0001) {
+        if (follow) {
+          camera.position.y += verticalChange;
+          controls.target.y += verticalChange;
+        }
+        changed = true;
+      }
+    }
     const npcJChanged = npcJPatrol?.update(delta, !quest.isCompleted()) ?? false;
     bridge.update();
-    return changed || npcJChanged || (!locked && held.size > 0);
+    return changed || npcJChanged || (!locked && (held.size > 0 || !isGrounded));
   }
   return {
     update,

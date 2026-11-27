@@ -40,7 +40,7 @@ async function showNextStep(answers) {
     <main id="viewer" aria-label="탑골공원 3D 퀘스트 게임">
       <canvas id="scene" aria-label="탑골공원 3D 장면"></canvas>
       <div id="loading" role="status" aria-live="polite">3D 맵을 불러오는 중...</div>
-      <p class="controls-hint">WASD 이동 · E 대화 · 일본군(NPC J)의 시야를 피하세요</p>
+      <p class="controls-hint">WASD 이동 · Space 점프 · E 대화 · 일본군(NPC J)의 시야를 피하세요</p>
     </main>
   `;
   unmountCurrentScreen = () => app.replaceChildren();

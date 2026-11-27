@@ -219,7 +219,12 @@ export function installNpcJPatrol({ THREE, npcJ, player, modelRoot, groundAt, ot
   function viewIsBlocked() {
     if (!blockers.length) return false;
     jEye.copy(npcJ.position).add(new THREE.Vector3(0, jEyeHeight, 0));
-    playerEye.copy(player.position).add(new THREE.Vector3(0, playerEyeHeight, 0));
+    const playerGroundY = groundAt(player.position.x, player.position.z);
+    playerEye.set(
+      player.position.x,
+      (Number.isFinite(playerGroundY) ? playerGroundY : player.position.y) + playerEyeHeight,
+      player.position.z,
+    );
     castVector.subVectors(playerEye, jEye);
     const d = castVector.length();
     if (d < 0.2) return false;
